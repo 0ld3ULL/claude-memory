@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-memory"
+version = "1.0.0"
+description = "Persistent memory system for Claude Code — significance-based decay, FTS5 search, session briefs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+[project.scripts]
+claude-memory = "claude_memory.__main__:main"
