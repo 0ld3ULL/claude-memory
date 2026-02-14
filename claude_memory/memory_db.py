@@ -53,6 +53,9 @@ RECALL_BOOST = 0.15
 # Prune threshold — below this, memory can be deleted
 PRUNE_THRESHOLD = 0.05
 
+# How many full sessions to keep (oldest auto-deleted when new one saved)
+MAX_SESSIONS = 10
+
 
 @dataclass
 class Memory:
@@ -162,6 +165,17 @@ class ClaudeMemoryDB:
             CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            )
+        """)
+
+        # Session transcripts — auto-captured at end of each session
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary TEXT NOT NULL,
+                project TEXT DEFAULT '',
+                files_changed TEXT DEFAULT '[]',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -299,6 +313,61 @@ class ClaudeMemoryDB:
 
         conn.commit()
         conn.close()
+
+    # ------------------------------------------------------------------
+    # Session Capture (last N sessions auto-saved)
+    # ------------------------------------------------------------------
+
+    def save_session(self, summary: str, project: str = "", files_changed: list[str] = None) -> int:
+        """
+        Save a session summary. Called at end of each Claude Code session.
+        Keeps the last MAX_SESSIONS entries, auto-prunes older ones.
+        """
+        now = datetime.now().isoformat()
+        conn = self._get_conn()
+        c = conn.cursor()
+
+        c.execute("""
+            INSERT INTO sessions (summary, project, files_changed, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (summary, project, json.dumps(files_changed or []), now))
+
+        session_id = c.lastrowid
+
+        # Auto-prune: keep only last MAX_SESSIONS
+        c.execute("""
+            DELETE FROM sessions WHERE id NOT IN (
+                SELECT id FROM sessions ORDER BY id DESC LIMIT ?
+            )
+        """, (MAX_SESSIONS,))
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Session #{session_id} saved: {summary[:80]}...")
+        return session_id
+
+    def get_sessions(self, limit: int = MAX_SESSIONS) -> list[dict]:
+        """Get recent sessions, newest first."""
+        conn = self._get_conn()
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT * FROM sessions ORDER BY id DESC LIMIT ?
+        """, (limit,))
+
+        sessions = []
+        for row in c.fetchall():
+            sessions.append({
+                "id": row["id"],
+                "summary": row["summary"],
+                "project": row["project"],
+                "files_changed": json.loads(row["files_changed"]) if row["files_changed"] else [],
+                "created_at": row["created_at"],
+            })
+
+        conn.close()
+        return sessions
 
     # ------------------------------------------------------------------
     # Decay / Prune

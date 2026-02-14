@@ -130,6 +130,20 @@ def generate_brief(db: ClaudeMemoryDB, output_path: Path = None, project_path: P
             lines.append(mem.content)
             lines.append("")
 
+    # --- Step 3b: Recent Sessions (last 10 auto-captured) ---
+    sessions = db.get_sessions(limit=10)
+    if sessions:
+        lines.append("## Recent Sessions (auto-captured, oldest auto-deleted after 10)")
+        lines.append("")
+        for sess in sessions:
+            ts = sess["created_at"][:16].replace("T", " ")
+            project = f" [{sess['project']}]" if sess.get("project") else ""
+            lines.append(f"### {ts}{project}")
+            lines.append(sess["summary"])
+            if sess.get("files_changed"):
+                lines.append(f"*Files: {', '.join(sess['files_changed'][:10])}*")
+            lines.append("")
+
     # --- Step 4: Footer ---
     lines.append("---")
     lines.append("## Memory Commands")

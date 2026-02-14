@@ -6,6 +6,8 @@ Usage:
     python -m claude_memory brief --project .                  # Also write to current project
     python -m claude_memory status                             # Show memory stats
     python -m claude_memory add <cat> <sig> "title" "content"  # Add a memory
+    python -m claude_memory save-session "summary"             # Save session transcript
+    python -m claude_memory sessions                           # View last 10 sessions
     python -m claude_memory decay                              # Apply weekly decay
     python -m claude_memory prune                              # Remove forgotten items
     python -m claude_memory search "query"                     # Search memories
@@ -52,8 +54,11 @@ python -m claude_memory decay               # Apply weekly decay
 
 ### Session End Checklist
 Before ending a session:
-1. Save important decisions/discoveries: `python -m claude_memory add decision 7 "title" "content"`
-2. Regenerate brief: `python -m claude_memory brief --project .`
+1. Save a session summary: `python -m claude_memory save-session "what you did this session" --project ProjectName --files file1.py,file2.py`
+2. Save important decisions/discoveries: `python -m claude_memory add decision 7 "title" "content"`
+3. Regenerate brief: `python -m claude_memory brief --project .`
+
+Session summaries auto-capture the last 10 sessions (oldest auto-deleted). This gives the next Claude instance a running log of recent work without any manual management.
 """.strip()
 
 
@@ -144,6 +149,58 @@ def main():
             print(f"[{mem.category}] {mem.title} (sig={mem.significance}, "
                   f"strength={mem.recall_strength:.2f}, state={mem.state})")
             print(f"  {mem.content[:200]}")
+            print()
+
+    elif command == "save-session":
+        if len(sys.argv) < 3:
+            print('Usage: python -m claude_memory save-session "summary of what happened"')
+            print()
+            print("Optional flags:")
+            print("  --project <name>         Project name")
+            print("  --files <f1,f2,f3>       Files changed")
+            print()
+            print("Examples:")
+            print('  python -m claude_memory save-session "Fixed video bug, deployed to VPS, built memory plugin"')
+            print('  python -m claude_memory save-session "Built API routes" --project AIpulse --files routes.ts,schema.ts')
+            return
+
+        # Parse args
+        summary_parts = []
+        project = ""
+        files_changed = []
+        i = 2
+        while i < len(sys.argv):
+            if sys.argv[i] == "--project" and i + 1 < len(sys.argv):
+                project = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--files" and i + 1 < len(sys.argv):
+                files_changed = sys.argv[i + 1].split(",")
+                i += 2
+            else:
+                summary_parts.append(sys.argv[i])
+                i += 1
+
+        summary = " ".join(summary_parts)
+        session_id = db.save_session(summary, project=project, files_changed=files_changed)
+        sessions = db.get_sessions(limit=1)
+        total = len(db.get_sessions(limit=10))
+        print(f"Session #{session_id} saved ({total}/10 slots used)")
+        print(f"  {summary[:200]}")
+
+    elif command == "sessions":
+        sessions = db.get_sessions(limit=10)
+        if not sessions:
+            print("No sessions saved yet.")
+            print('Save one with: python -m claude_memory save-session "what happened"')
+            return
+        print(f"Last {len(sessions)} sessions (oldest auto-deleted after 10):\n")
+        for sess in sessions:
+            ts = sess["created_at"][:16].replace("T", " ")
+            project = f" [{sess['project']}]" if sess.get("project") else ""
+            print(f"  #{sess['id']} | {ts}{project}")
+            print(f"    {sess['summary'][:200]}")
+            if sess.get("files_changed"):
+                print(f"    Files: {', '.join(sess['files_changed'][:5])}")
             print()
 
     elif command == "export":
