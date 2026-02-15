@@ -17,6 +17,9 @@ Usage:
     python -m claude_memory export                             # Export all memories as text
     python -m claude_memory init                               # Set up current project (DB + hooks + statusline)
     python -m claude_memory migrate <path>                     # Import from existing DB
+    python -m claude_memory bulletin                           # Update my family bulletin and push
+    python -m claude_memory family                             # Read other Claudes' statuses
+    python -m claude_memory identity                           # Show my identity
 """
 
 import json
@@ -271,6 +274,42 @@ def main():
             print("Usage: python -m claude_memory migrate <path-to-old-memory.db>")
             return
         _migrate(sys.argv[2])
+
+    elif command == "bulletin":
+        from claude_memory.bulletin import update_bulletin
+        update_bulletin(db)
+
+    elif command == "family":
+        from claude_memory.bulletin import read_family_status, get_identity
+        identity = get_identity()
+        if identity:
+            print(f"I am {identity['claude_name']} ({identity['claude_id']})")
+            print(f"Project: {identity['project']} | Machine: {identity['machine']}")
+            print()
+        statuses = read_family_status()
+        if not statuses:
+            print("No family bulletins found (or bulletin repo not cloned).")
+        else:
+            for claude_id, content in statuses.items():
+                print(f"{'=' * 50}")
+                print(content)
+                print()
+
+    elif command == "identity":
+        from claude_memory.bulletin import get_identity
+        identity = get_identity()
+        if identity:
+            print(f"Claude ID:  {identity['claude_id']}")
+            print(f"Name:       {identity['claude_name']}")
+            print(f"Project:    {identity['project']}")
+            print(f"Machine:    {identity['machine']}")
+            print(f"Bulletin:   {identity.get('bulletin_repo', 'not configured')}")
+        else:
+            print("No identity configured.")
+            print("Create ~/.claude-memory/identity.json with:")
+            print('  {"claude_id": "claude-x", "claude_name": "Claude X",')
+            print('   "project": "My Project", "machine": "My PC",')
+            print('   "bulletin_repo": "C:\\\\Projects\\\\claude-family"}')
 
     else:
         print(f"Unknown command: {command}")

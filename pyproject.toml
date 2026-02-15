@@ -10,5 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 
+[tool.setuptools.packages.find]
+include = ["claude_memory*"]
+
 [project.scripts]
 claude-memory = "claude_memory.__main__:main"
