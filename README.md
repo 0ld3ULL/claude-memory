@@ -7,8 +7,11 @@ Persistent memory system for Claude Code. Memories have significance (1-10) and 
 - **Significance-based decay** — sig 10 never fades, sig 1 is gone in 2 weeks
 - **Full-text search** — find memories fast with SQLite FTS5
 - **Session briefs** — generates a compact `claude_brief.md` that Claude reads at startup
+- **Context meter** — real-time context % at bottom of screen, auto-warning at 55%/70%
+- **Auto-save** — session state saved to `session_log.md` on every exit
 - **Global database** — memories stored at `~/.claude-memory/memory.db`, shared across all projects
-- **Zero dependencies** — just Python 3.10+ (uses only stdlib)
+- **Windows + Mac/Linux** — auto-detects OS, uses Node.js hooks on Windows, bash on Mac/Linux
+- **Zero dependencies** — just Python 3.10+ and Node.js (uses only stdlib)
 
 ## Install
 
@@ -127,6 +130,17 @@ This copies the database to the global location (`~/.claude-memory/memory.db`).
 
 When you search for a memory, it gets a +0.15 recall boost. Frequently accessed memories stay strong. Ignored memories fade.
 
+## Windows Notes
+
+On Windows, Claude Code runs hook commands through `cmd.exe`, not bash. This means bash scripts fail silently. The `init` command auto-detects Windows and installs Node.js hooks (`.js` files) instead of bash scripts (`.sh` files).
+
+**Requirements on Windows:**
+- Python 3.10+
+- Node.js (comes with Claude Code — `node.exe` must be in PATH)
+- Git Bash is NOT required for the hooks (but useful for the terminal)
+
+If you previously installed with bash hooks and they weren't working, just run `python -m claude_memory init` again — it will replace them with Node.js hooks.
+
 ## File Locations
 
 | File | Location |
@@ -134,3 +148,5 @@ When you search for a memory, it gets a +0.15 recall boost. Frequently accessed 
 | Database | `~/.claude-memory/memory.db` |
 | Global brief | `~/.claude-memory/brief.md` |
 | Project brief | `<project>/claude_brief.md` |
+| Session log | `<project>/session_log.md` |
+| Hook scripts | `~/.claude/statusline.js` (Win) or `~/.claude/statusline.sh` (Mac/Linux) |

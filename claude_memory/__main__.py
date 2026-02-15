@@ -20,10 +20,13 @@ Usage:
 """
 
 import json
+import os
 import sys
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+IS_WINDOWS = sys.platform == "win32"
 
 from claude_memory.memory_db import ClaudeMemoryDB, DB_DIR, DB_PATH
 from claude_memory.brief_generator import generate_brief
@@ -85,8 +88,20 @@ Before ending a session:
 2. Regenerate brief: `python -m claude_memory brief --project .`
 """.strip()
 
-# Statusline — uses a script file for reliability on Windows
-STATUSLINE_COMMAND = "bash ~/.claude/statusline.sh"
+# Hook commands — Node.js on Windows (bash doesn't run from cmd.exe), bash elsewhere
+def _hook_cmd(script_name):
+    """Return the correct hook command for this OS."""
+    home = Path.home()
+    if IS_WINDOWS:
+        js_name = script_name.replace(".sh", ".js")
+        # Use backslashes for Windows settings.json
+        return f"node {home}\\.claude\\{js_name}"
+    else:
+        return f"bash ~/.claude/{script_name}"
+
+def _hook_ext():
+    """Return the file extension for hook scripts on this OS."""
+    return ".js" if IS_WINDOWS else ".sh"
 
 
 def main():
@@ -521,44 +536,46 @@ def _install_hooks():
         settings["hooks"] = {}
 
     hooks = settings["hooks"]
+    ext = _hook_ext()
 
     # SessionEnd hook — auto-save on exit
-    session_end_cmd = "python -m claude_memory auto-save"
+    session_end_cmd = _hook_cmd(f"session_end{ext}")
     if "SessionEnd" not in hooks:
         hooks["SessionEnd"] = []
 
-    se_installed = any(
-        h.get("command", "") == session_end_cmd
-        for entry in hooks["SessionEnd"]
-        for h in entry.get("hooks", [])
-    )
-    if not se_installed:
-        hooks["SessionEnd"].append({
-            "matcher": "",
-            "hooks": [{"type": "command", "command": session_end_cmd}]
-        })
+    # Remove old bash hooks if switching to node
+    hooks["SessionEnd"] = [
+        entry for entry in hooks["SessionEnd"]
+        if not any("claude_memory auto-save" in h.get("command", "") for h in entry.get("hooks", []))
+        and not any("session_end" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
+    hooks["SessionEnd"].append({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": session_end_cmd}]
+    })
 
     # UserPromptSubmit hook — context check
-    context_cmd = "bash ~/.claude/context_check.sh"
+    context_cmd = _hook_cmd(f"context_check{ext}")
     if "UserPromptSubmit" not in hooks:
         hooks["UserPromptSubmit"] = []
 
-    ups_installed = any(
-        h.get("command", "") == context_cmd
-        for entry in hooks["UserPromptSubmit"]
-        for h in entry.get("hooks", [])
-    )
-    if not ups_installed:
-        hooks["UserPromptSubmit"].append({
-            "matcher": "",
-            "hooks": [{"type": "command", "command": context_cmd}]
-        })
+    # Remove old bash/node context check hooks
+    hooks["UserPromptSubmit"] = [
+        entry for entry in hooks["UserPromptSubmit"]
+        if not any("context_check" in h.get("command", "") for h in entry.get("hooks", []))
+    ]
+    hooks["UserPromptSubmit"].append({
+        "matcher": "",
+        "hooks": [{"type": "command", "command": context_cmd}]
+    })
 
-    # Copy context_check.sh to ~/.claude/
-    context_check_src = Path(__file__).parent.parent / "hooks" / "context_check.sh"
-    context_check_dst = CLAUDE_DIR / "context_check.sh"
-    if context_check_src.exists():
-        shutil.copy2(context_check_src, context_check_dst)
+    # Copy hook scripts to ~/.claude/
+    hooks_dir = Path(__file__).parent.parent / "hooks"
+    for script in [f"context_check{ext}", f"session_end{ext}"]:
+        src = hooks_dir / script
+        dst = CLAUDE_DIR / script
+        if src.exists():
+            shutil.copy2(src, dst)
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
@@ -575,15 +592,18 @@ def _install_statusline():
         except json.JSONDecodeError:
             settings = {}
 
-    # Copy statusline.sh script to ~/.claude/
-    statusline_src = Path(__file__).parent.parent / "hooks" / "statusline.sh"
-    statusline_dst = CLAUDE_DIR / "statusline.sh"
+    ext = _hook_ext()
+    script_name = f"statusline{ext}"
+
+    # Copy statusline script to ~/.claude/
+    statusline_src = Path(__file__).parent.parent / "hooks" / script_name
+    statusline_dst = CLAUDE_DIR / script_name
     if statusline_src.exists():
         shutil.copy2(statusline_src, statusline_dst)
 
     settings["statusLine"] = {
         "type": "command",
-        "command": STATUSLINE_COMMAND
+        "command": _hook_cmd(script_name)
     }
 
     settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
