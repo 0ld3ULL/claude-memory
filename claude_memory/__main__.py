@@ -7,7 +7,7 @@ Usage:
     python -m claude_memory status                             # Show memory stats
     python -m claude_memory add <cat> <sig> "title" "content"  # Add a memory
     python -m claude_memory save-session "summary"             # Save session transcript
-    python -m claude_memory sessions                           # View last 10 sessions
+    python -m claude_memory sessions                           # View saved sessions (200MB cap)
     python -m claude_memory transcripts                        # View recent session transcripts
     python -m claude_memory transcripts --short                # Only short sessions (quick fixes)
     python -m claude_memory auto-save                          # Called by SessionEnd hook
@@ -56,7 +56,7 @@ python -m claude_memory brief --project .   # Generate session brief
 python -m claude_memory status              # Memory stats
 python -m claude_memory add <cat> <sig> "title" "content"  # Save a memory
 python -m claude_memory search "query"      # Search memories
-python -m claude_memory sessions            # View last 10 saved sessions
+python -m claude_memory sessions            # View saved sessions (200MB storage cap)
 python -m claude_memory transcripts         # View recent chat transcripts
 python -m claude_memory decay               # Apply weekly decay
 ```
@@ -85,21 +85,8 @@ Before ending a session:
 2. Regenerate brief: `python -m claude_memory brief --project .`
 """.strip()
 
-# Statusline command — shows context % at bottom of Claude Code
-# Uses simple chars (=.) that work on all terminals including Windows
-STATUSLINE_COMMAND = (
-    'input=$(cat); '
-    'used=$(echo "$input" | jq -r \'.context_window.used_percentage // empty\' 2>/dev/null); '
-    'if [ -z "$used" ]; then echo "Context: Ready"; exit 0; fi; '
-    'pct=$(printf "%.0f" "$used"); '
-    'echo "$pct" > ~/.claude/context_pct.txt; '
-    'full="===================="; dots="...................."; '
-    'filled=$((pct / 5)); [ "$filled" -gt 20 ] && filled=20; empty=$((20 - filled)); '
-    'bar="${full:0:$filled}${dots:0:$empty}"; '
-    'if [ "$pct" -ge 70 ]; then echo "[$bar] ${pct}% DANGER"; '
-    'elif [ "$pct" -ge 50 ]; then echo "[$bar] ${pct}% SAVE+EXIT"; '
-    'else echo "[$bar] ${pct}%"; fi'
-)
+# Statusline — uses a script file for reliability on Windows
+STATUSLINE_COMMAND = "bash ~/.claude/statusline.sh"
 
 
 def main():
@@ -145,8 +132,8 @@ def main():
             print(f"  {cat}: {count}")
 
         # Show session info
-        sessions = db.get_sessions(limit=10)
-        print(f"\nSaved sessions:     {len(sessions)}/10")
+        sessions = db.get_sessions(limit=50)
+        print(f"\nSaved sessions:     {len(sessions)}")
         if sessions:
             latest = sessions[0]
             ts = latest["created_at"][:16].replace("T", " ")
@@ -231,17 +218,17 @@ def main():
 
         summary = " ".join(summary_parts)
         session_id = db.save_session(summary, project=project, files_changed=files_changed)
-        total = len(db.get_sessions(limit=10))
-        print(f"Session #{session_id} saved ({total}/10 slots used)")
+        total = len(db.get_sessions(limit=50))
+        print(f"Session #{session_id} saved ({total} sessions stored)")
         print(f"  {summary[:200]}")
 
     elif command == "sessions":
-        sessions = db.get_sessions(limit=10)
+        sessions = db.get_sessions(limit=50)
         if not sessions:
             print("No sessions saved yet.")
             print('Save one with: python -m claude_memory save-session "what happened"')
             return
-        print(f"Last {len(sessions)} sessions (oldest auto-deleted after 10):\n")
+        print(f"Last {len(sessions)} sessions (storage-capped at 200MB):\n")
         for sess in sessions:
             ts = sess["created_at"][:16].replace("T", " ")
             project = f" [{sess['project']}]" if sess.get("project") else ""
@@ -307,7 +294,7 @@ def _auto_save(db: ClaudeMemoryDB):
     Called by SessionEnd hook. Reads the transcript and saves session state.
 
     1. Parses the current session transcript (from stdin hook input or latest file)
-    2. Saves a session summary to the DB (last 10 sessions)
+    2. Saves a session summary to the DB (200MB storage cap)
     3. Writes session_log.md to the project directory
     """
     from claude_memory.transcript_reader import read_transcript, list_sessions
@@ -377,7 +364,7 @@ def _write_session_log(transcript):
         for line in lines:
             if line.startswith("### Session:"):
                 session_count += 1
-                if session_count > 5:  # Keep max 5 previous
+                if session_count > 10:  # Keep more previous sessions in log
                     break
                 collecting = True
             if collecting:
@@ -587,6 +574,12 @@ def _install_statusline():
             settings = json.loads(settings_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             settings = {}
+
+    # Copy statusline.sh script to ~/.claude/
+    statusline_src = Path(__file__).parent.parent / "hooks" / "statusline.sh"
+    statusline_dst = CLAUDE_DIR / "statusline.sh"
+    if statusline_src.exists():
+        shutil.copy2(statusline_src, statusline_dst)
 
     settings["statusLine"] = {
         "type": "command",

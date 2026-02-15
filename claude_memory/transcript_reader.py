@@ -123,9 +123,18 @@ def find_transcript_dir(project_dir: str = None) -> Optional[Path]:
     return None
 
 
-def list_sessions(project_dir: str = None, limit: int = 10) -> list[Path]:
+def list_sessions(project_dir: str = None, limit: int = None, max_storage_mb: int = 200) -> list[Path]:
     """
     List recent session transcript files, newest first.
+
+    Uses a storage cap instead of a fixed count. Mini sessions (44KB) barely
+    dent the budget while full sessions (15MB) use more, so you naturally
+    keep far more history than a fixed "last 10" count would allow.
+
+    Args:
+        project_dir: Project directory (default: cwd)
+        limit: Hard count cap (optional, for backwards compat)
+        max_storage_mb: Storage budget in MB (default: 200MB ≈ 10-15 full sessions)
 
     Returns list of Path objects to .jsonl files.
     """
@@ -139,7 +148,22 @@ def list_sessions(project_dir: str = None, limit: int = 10) -> list[Path]:
         reverse=True
     )
 
-    return jsonl_files[:limit]
+    # If a hard count limit is given, use it (backwards compat)
+    if limit is not None:
+        return jsonl_files[:limit]
+
+    # Otherwise, use storage cap
+    max_bytes = max_storage_mb * 1024 * 1024
+    result = []
+    total_bytes = 0
+    for f in jsonl_files:
+        size = f.stat().st_size
+        if total_bytes + size > max_bytes and result:
+            break
+        result.append(f)
+        total_bytes += size
+
+    return result
 
 
 def read_transcript(jsonl_path: Path) -> SessionTranscript:

@@ -53,8 +53,9 @@ RECALL_BOOST = 0.15
 # Prune threshold — below this, memory can be deleted
 PRUNE_THRESHOLD = 0.05
 
-# How many full sessions to keep (oldest auto-deleted when new one saved)
-MAX_SESSIONS = 10
+# Storage cap for session transcripts (in MB)
+# 200MB ≈ 10-15 full sessions. Mini sessions barely dent the budget.
+MAX_SESSION_STORAGE_MB = 200
 
 
 @dataclass
@@ -321,7 +322,9 @@ class ClaudeMemoryDB:
     def save_session(self, summary: str, project: str = "", files_changed: list[str] = None) -> int:
         """
         Save a session summary. Called at end of each Claude Code session.
-        Keeps the last MAX_SESSIONS entries, auto-prunes older ones.
+        DB summaries are tiny — we keep up to 200 rows as a safety net.
+        The real storage cap (MAX_SESSION_STORAGE_MB) is enforced on
+        transcript JSONL files by transcript_reader.list_sessions().
         """
         now = datetime.now().isoformat()
         conn = self._get_conn()
@@ -334,12 +337,12 @@ class ClaudeMemoryDB:
 
         session_id = c.lastrowid
 
-        # Auto-prune: keep only last MAX_SESSIONS
+        # Safety net: keep max 200 DB rows (summaries are tiny text)
         c.execute("""
             DELETE FROM sessions WHERE id NOT IN (
-                SELECT id FROM sessions ORDER BY id DESC LIMIT ?
+                SELECT id FROM sessions ORDER BY id DESC LIMIT 200
             )
-        """, (MAX_SESSIONS,))
+        """)
 
         conn.commit()
         conn.close()
@@ -347,7 +350,7 @@ class ClaudeMemoryDB:
         logger.info(f"Session #{session_id} saved: {summary[:80]}...")
         return session_id
 
-    def get_sessions(self, limit: int = MAX_SESSIONS) -> list[dict]:
+    def get_sessions(self, limit: int = 50) -> list[dict]:
         """Get recent sessions, newest first."""
         conn = self._get_conn()
         c = conn.cursor()
