@@ -479,6 +479,34 @@ def _show_timeline():
     else:
         print("  All sessions accounted for.")
 
+    # Check for hook errors (context_check.js failures = safety net was down)
+    hook_error_log = Path.home() / ".claude" / "hook_errors.log"
+    if hook_error_log.exists():
+        try:
+            errors = hook_error_log.read_text(encoding="utf-8").strip().splitlines()
+            # Filter to errors within 48h window
+            recent_errors = []
+            for line in errors:
+                try:
+                    err_ts = line.split(" ")[0]
+                    err_dt = datetime.fromisoformat(err_ts.replace("Z", "+00:00"))
+                    if err_dt.timestamp() > cutoff:
+                        recent_errors.append(line)
+                except (ValueError, IndexError):
+                    pass
+            if recent_errors:
+                print()
+                print("~" * 70)
+                print(f"  HOOK ERRORS: {len(recent_errors)} context check failures in last 48h")
+                print("  The safety net (save-at-70%) was NOT running during these times.")
+                print("  Sessions near these timestamps may have unsaved work.")
+                print()
+                for err in recent_errors[-10:]:  # Show last 10
+                    print(f"    {err[:80]}")
+                print("~" * 70)
+        except (OSError, UnicodeDecodeError):
+            pass
+
     print()
 
 
