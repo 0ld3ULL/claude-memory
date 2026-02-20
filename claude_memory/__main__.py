@@ -22,6 +22,9 @@ Usage:
     python -m claude_memory bulletin                           # Update my family bulletin and push
     python -m claude_memory family                             # Read other Claudes' statuses
     python -m claude_memory identity                           # Show my identity
+    python -m claude_memory audit                              # Weekly Memory Audit (7 days vs saved memories via Gemini)
+    python -m claude_memory audit --days 3                     # Custom range
+    python -m claude_memory audit --dry-run                    # Show stats without calling Gemini
 """
 
 import json
@@ -310,6 +313,18 @@ def main():
                 print(f"{'=' * 50}")
                 print(content)
                 print()
+
+    elif command == "audit":
+        from claude_memory.audit import run_audit
+        days = 7
+        dry_run = False
+        if "--days" in sys.argv:
+            idx = sys.argv.index("--days")
+            if idx + 1 < len(sys.argv):
+                days = int(sys.argv[idx + 1])
+        if "--dry-run" in sys.argv:
+            dry_run = True
+        run_audit(db, days=days, dry_run=dry_run)
 
     elif command == "identity":
         from claude_memory.bulletin import get_identity
